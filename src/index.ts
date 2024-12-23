@@ -7,7 +7,7 @@ const wss = new WebSocketServer({
   port,
   verifyClient: (info, done) => {
     const origin = info.origin || '';
-    if (origin !== 'https://your-frontend-domain.com') {
+    if (origin !== 'https://chess-frontend-4r5o.onrender.com') {
       done(false, 403, 'Forbidden');
     } else {
       done(true);

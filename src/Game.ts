@@ -5,8 +5,7 @@ import { GAME_OVER, INIT_GAME, MOVE } from "./messages";
 export class Game {
     public player1: WebSocket;
     public player2: WebSocket;
-    public board: Chess;
-    public id: string;
+    public board: Chess
     private startTime: Date;
     private moveCount = 0;
 
@@ -15,29 +14,27 @@ export class Game {
         this.player2 = player2;
         this.board = new Chess();
         this.startTime = new Date();
-        // Generate a more reliable unique ID
-        this.id = Date.now().toString(36) + Math.random().toString(36).substring(2);
-        
         this.player1.send(JSON.stringify({
             type: INIT_GAME,
             payload: {
-                color: "white",
-                gameId: this.id
+                color: "white"
             }
         }));
         this.player2.send(JSON.stringify({
             type: INIT_GAME,
             payload: {
-                color: "black",
-                gameId: this.id
+                color: "black"
             }
         }));
     }
 
-    makeMove(socket: WebSocket, move: { from: string; to: string; }) {
-        // Existing move logic...
+    makeMove(socket: WebSocket, move: {
+        from: string;
+        to: string;
+    }) {
+        // validate the type of move using zod
         if (this.moveCount % 2 === 0 && socket !== this.player1) {
-            return;
+            return
         }
         if (this.moveCount % 2 === 1 && socket !== this.player2) {
             return;
@@ -51,18 +48,19 @@ export class Game {
         }
         
         if (this.board.isGameOver()) {
-            this.player1.send(JSON.stringify({
+            // Send the game over message to both players
+            this.player1.emit(JSON.stringify({
                 type: GAME_OVER,
                 payload: {
                     winner: this.board.turn() === "w" ? "black" : "white"
                 }
-            }));
-            this.player2.send(JSON.stringify({
+            }))
+            this.player2.emit(JSON.stringify({
                 type: GAME_OVER,
                 payload: {
                     winner: this.board.turn() === "w" ? "black" : "white"
                 }
-            }));
+            }))
             return;
         }
 
@@ -70,12 +68,12 @@ export class Game {
             this.player2.send(JSON.stringify({
                 type: MOVE,
                 payload: move
-            }));
+            }))
         } else {
             this.player1.send(JSON.stringify({
                 type: MOVE,
                 payload: move
-            }));
+            }))
         }
         this.moveCount++;
     }
