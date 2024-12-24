@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import { Chess, Move } from "chess.js";
-import { GAME_OVER, INIT_GAME, MOVE } from "./messages";
+import { GAME_OVER, INIT_GAME, MOVE, GAME_UPDATE } from "./messages";
 
 export class Game {
   public player1: WebSocket;
@@ -10,6 +10,7 @@ export class Game {
   private startTime: Date;
   private moveCount: number;
   private lastMove: Move | null;
+  private spectators: Set<WebSocket>;
 
   constructor(player1: WebSocket, player2: WebSocket) {
     this.player1 = player1;
@@ -19,6 +20,7 @@ export class Game {
     this.moveCount = 0;
     this.lastMove = null;
     this.id = Math.random().toString(36).substring(7);
+    this.spectators = new Set();
 
     this.player1.send(JSON.stringify({
       type: INIT_GAME,
@@ -28,6 +30,43 @@ export class Game {
       type: INIT_GAME,
       payload: { color: "black" }
     }));
+  }
+
+  addSpectator(socket: WebSocket) {
+    this.spectators.add(socket);
+    this.sendGameStateToSpectator(socket);
+  }
+
+  removeSpectator(socket: WebSocket) {
+    this.spectators.delete(socket);
+  }
+
+  private sendGameStateToSpectator(socket: WebSocket) {
+    socket.send(JSON.stringify({
+      type: GAME_UPDATE,
+      payload: {
+        fen: this.board.fen(),
+        whiteTime: this.getWhiteTime(),
+        blackTime: this.getBlackTime(),
+        lastMove: this.lastMove
+      }
+    }));
+  }
+
+  private broadcastToSpectators() {
+    const gameState = JSON.stringify({
+      type: GAME_UPDATE,
+      payload: {
+        fen: this.board.fen(),
+        whiteTime: this.getWhiteTime(),
+        blackTime: this.getBlackTime(),
+        lastMove: this.lastMove
+      }
+    });
+
+    this.spectators.forEach(spectator => {
+      spectator.send(gameState);
+    });
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; }) {
@@ -50,6 +89,7 @@ export class Game {
       });
       this.player1.send(gameOverMessage);
       this.player2.send(gameOverMessage);
+      this.spectators.forEach(spectator => spectator.send(gameOverMessage));
       return;
     }
 
@@ -63,7 +103,9 @@ export class Game {
     } else {
       this.player1.send(moveMessage);
     }
+    
     this.moveCount++;
+    this.broadcastToSpectators();
   }
 
   getStatus(): string {
