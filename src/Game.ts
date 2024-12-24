@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
 import { Chess, Move } from "chess.js";
-import { GAME_OVER, INIT_GAME, MOVE, GAME_UPDATE } from "./messages";
+import { GAME_OVER, INIT_GAME, MOVE, GAME_UPDATE, PLAYER_JOINED, GAME_STATE } from "./messages";
 
 export class Game {
   public player1: WebSocket;
@@ -22,51 +22,60 @@ export class Game {
     this.id = Math.random().toString(36).substring(7);
     this.spectators = new Set();
 
+    // Notify both players about the game start and their colors
     this.player1.send(JSON.stringify({
       type: INIT_GAME,
-      payload: { color: "white" }
+      payload: { 
+        color: "white",
+        gameId: this.id
+      }
     }));
     this.player2.send(JSON.stringify({
       type: INIT_GAME,
-      payload: { color: "black" }
+      payload: { 
+        color: "black",
+        gameId: this.id
+      }
     }));
+
+    // Broadcast that a new game has started
+    this.broadcastGameState();
+  }
+
+  private broadcastGameState() {
+    const gameState = {
+      type: GAME_UPDATE,
+      payload: {
+        fen: this.board.fen(),
+        whiteTime: this.getWhiteTime(),
+        blackTime: this.getBlackTime(),
+        lastMove: this.lastMove,
+        gameId: this.id,
+        status: this.getStatus()
+      }
+    };
+
+    this.spectators.forEach(spectator => {
+      spectator.send(JSON.stringify(gameState));
+    });
   }
 
   addSpectator(socket: WebSocket) {
     this.spectators.add(socket);
-    this.sendGameStateToSpectator(socket);
-  }
-
-  removeSpectator(socket: WebSocket) {
-    this.spectators.delete(socket);
-  }
-
-  private sendGameStateToSpectator(socket: WebSocket) {
     socket.send(JSON.stringify({
-      type: GAME_UPDATE,
+      type: GAME_STATE,
       payload: {
         fen: this.board.fen(),
         whiteTime: this.getWhiteTime(),
         blackTime: this.getBlackTime(),
-        lastMove: this.lastMove
+        gameId: this.id,
+        status: this.getStatus()
       }
     }));
   }
 
-  private broadcastToSpectators() {
-    const gameState = JSON.stringify({
-      type: GAME_UPDATE,
-      payload: {
-        fen: this.board.fen(),
-        whiteTime: this.getWhiteTime(),
-        blackTime: this.getBlackTime(),
-        lastMove: this.lastMove
-      }
-    });
-
-    this.spectators.forEach(spectator => {
-      spectator.send(gameState);
-    });
+  removeSpectator(socket: WebSocket) {
+    this.spectators.delete(socket);
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; }) {
@@ -84,7 +93,8 @@ export class Game {
       const gameOverMessage = JSON.stringify({
         type: GAME_OVER,
         payload: {
-          winner: this.board.turn() === "w" ? "black" : "white"
+          winner: this.board.turn() === "w" ? "black" : "white",
+          gameId: this.id
         }
       });
       this.player1.send(gameOverMessage);
@@ -95,7 +105,10 @@ export class Game {
 
     const moveMessage = JSON.stringify({
       type: MOVE,
-      payload: move
+      payload: {
+        move,
+        gameId: this.id
+      }
     });
 
     if (this.moveCount % 2 === 0) {
@@ -105,7 +118,7 @@ export class Game {
     }
     
     this.moveCount++;
-    this.broadcastToSpectators();
+    this.broadcastGameState();
   }
 
   getStatus(): string {
