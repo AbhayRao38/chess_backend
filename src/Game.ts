@@ -38,7 +38,7 @@ export class Game {
       }
     }));
 
-    // Broadcast that a new game has started
+    // Broadcast initial game state
     this.broadcastGameState();
   }
 
@@ -51,17 +51,22 @@ export class Game {
         blackTime: this.getBlackTime(),
         lastMove: this.lastMove,
         gameId: this.id,
-        status: this.getStatus()
+        status: this.getStatus(),
+        moveCount: this.moveCount
       }
     };
 
-    this.spectators.forEach(spectator => {
-      spectator.send(JSON.stringify(gameState));
+    // Send to all spectators and players
+    [...this.spectators, this.player1, this.player2].forEach(client => {
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(gameState));
+      }
     });
   }
 
   addSpectator(socket: WebSocket) {
     this.spectators.add(socket);
+    // Send current game state to new spectator
     socket.send(JSON.stringify({
       type: GAME_STATE,
       payload: {
@@ -69,13 +74,23 @@ export class Game {
         whiteTime: this.getWhiteTime(),
         blackTime: this.getBlackTime(),
         gameId: this.id,
-        status: this.getStatus()
+        status: this.getStatus(),
+        moveCount: this.moveCount,
+        lastMove: this.lastMove
       }
     }));
   }
 
   removeSpectator(socket: WebSocket) {
     this.spectators.delete(socket);
+  }
+
+  getSpectators(): WebSocket[] {
+    return Array.from(this.spectators);
+  }
+
+  getSpectatorsCount(): number {
+    return this.spectators.size;
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; }) {
@@ -97,9 +112,11 @@ export class Game {
           gameId: this.id
         }
       });
-      this.player1.send(gameOverMessage);
-      this.player2.send(gameOverMessage);
-      this.spectators.forEach(spectator => spectator.send(gameOverMessage));
+      [...this.spectators, this.player1, this.player2].forEach(client => {
+        if (client && client.readyState === WebSocket.OPEN) {
+          client.send(gameOverMessage);
+        }
+      });
       return;
     }
 
