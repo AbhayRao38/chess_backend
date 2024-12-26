@@ -69,13 +69,16 @@ export class Game {
         this.whiteTimeRemaining--;
         if (this.whiteTimeRemaining <= 0) {
           this.handleTimeout('white');
+          return;
         }
       } else {
         this.blackTimeRemaining--;
         if (this.blackTimeRemaining <= 0) {
           this.handleTimeout('black');
+          return;
         }
       }
+      
       this.broadcastGameState();
     }, 1000);
   }
