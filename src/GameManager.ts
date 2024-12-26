@@ -5,27 +5,27 @@ import { Game } from "./Game";
 export class GameManager {
   private games: Game[];
   private pendingUser: WebSocket | null;
-  private users: WebSocket[];
+  private users: Set<WebSocket>;
 
   constructor() {
     this.games = [];
     this.pendingUser = null;
-    this.users = [];
+    this.users = new Set();
   }
 
   addUser(socket: WebSocket) {
-    this.users.push(socket);
+    this.users.add(socket);
     this.addHandler(socket);
-    // Send initial games list to new user
     this.sendGamesList(socket);
   }
 
   removeUser(socket: WebSocket) {
-    this.users = this.users.filter(user => user !== socket);
+    this.users.delete(socket);
+    
     // Remove user from any games they're spectating
     this.games.forEach(game => game.removeSpectator(socket));
     
-    // Remove game if a player disconnects
+    // Handle player disconnection
     const gameIndex = this.games.findIndex(
       game => game.player1 === socket || game.player2 === socket
     );
@@ -34,20 +34,26 @@ export class GameManager {
       const game = this.games[gameIndex];
       // Notify remaining players and spectators
       [game.player1, game.player2, ...game.getSpectators()].forEach(client => {
-        if (client && client !== socket) {
+        if (client && client !== socket && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({
             type: 'game_ended',
-            payload: { reason: 'player_disconnected' }
+            payload: { reason: 'player_disconnected', gameId: game.id }
           }));
         }
       });
       this.games.splice(gameIndex, 1);
-      // Update all users with new games list
       this.broadcastGamesList();
+    }
+
+    // Reset pending user if they disconnect
+    if (this.pendingUser === socket) {
+      this.pendingUser = null;
     }
   }
 
   private sendGamesList(socket: WebSocket) {
+    if (socket.readyState !== WebSocket.OPEN) return;
+
     const activeGames = this.games.map(game => ({
       id: game.id,
       player1: `Player ${game.id.substring(0, 4)}`,
@@ -73,13 +79,12 @@ export class GameManager {
 
         switch (message.type) {
           case INIT_GAME:
-            if (this.pendingUser) {
+            if (this.pendingUser && this.pendingUser !== socket) {
               const game = new Game(this.pendingUser, socket);
               this.games.push(game);
               this.pendingUser = null;
-              // Broadcast updated games list to all users
               this.broadcastGamesList();
-            } else {
+            } else if (!this.pendingUser) {
               this.pendingUser = socket;
             }
             break;
@@ -90,7 +95,6 @@ export class GameManager {
             );
             if (game) {
               game.makeMove(socket, message.payload.move);
-              // Update games list after move
               this.broadcastGamesList();
             }
             break;
@@ -103,13 +107,21 @@ export class GameManager {
             const targetGame = this.games.find(g => g.id === message.payload.gameId);
             if (targetGame) {
               targetGame.addSpectator(socket);
-              // Update games list to reflect new spectator
               this.broadcastGamesList();
+            } else {
+              socket.send(JSON.stringify({
+                type: 'error',
+                payload: { message: 'Game not found' }
+              }));
             }
             break;
         }
       } catch (error) {
         console.error('Error handling message:', error);
+        socket.send(JSON.stringify({
+          type: 'error',
+          payload: { message: 'Invalid message format' }
+        }));
       }
     });
   }
