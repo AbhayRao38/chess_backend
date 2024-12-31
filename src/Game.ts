@@ -24,18 +24,17 @@ export class Game {
     this.spectators = new Set();
     this.isGameOver = false;
 
-    // Initialize game for both players
     this.initializeGame();
   }
 
   private initializeGame() {
     try {
-      // Notify both players about the game start and their colors
       this.sendToPlayer(this.player1, {
         type: INIT_GAME,
         payload: { 
           color: "white",
-          gameId: this.id
+          gameId: this.id,
+          fen: this.board.fen()
         }
       });
 
@@ -43,11 +42,11 @@ export class Game {
         type: INIT_GAME,
         payload: { 
           color: "black",
-          gameId: this.id
+          gameId: this.id,
+          fen: this.board.fen()
         }
       });
 
-      // Broadcast initial game state
       this.broadcastGameState();
     } catch (error) {
       console.error('Error initializing game:', error);
@@ -75,7 +74,8 @@ export class Game {
         blackTime: this.getBlackTime(),
         lastMove: this.lastMove,
         gameId: this.id,
-        status: this.getStatus()
+        status: this.getStatus(),
+        moveCount: this.moveCount
       }
     };
 
@@ -105,7 +105,8 @@ export class Game {
           whiteTime: this.getWhiteTime(),
           blackTime: this.getBlackTime(),
           gameId: this.id,
-          status: this.getStatus()
+          status: this.getStatus(),
+          moveCount: this.moveCount
         }
       });
     } catch (error) {
@@ -152,7 +153,9 @@ export class Game {
         type: MOVE,
         payload: {
           move,
-          gameId: this.id
+          gameId: this.id,
+          fen: this.board.fen(),
+          moveCount: this.moveCount
         }
       };
       this.broadcastToAll(moveMessage);
