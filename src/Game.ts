@@ -75,7 +75,8 @@ export class Game {
         lastMove: this.lastMove,
         gameId: this.id,
         status: this.getStatus(),
-        moveCount: this.moveCount
+        moveCount: this.moveCount,
+        turn: this.board.turn()
       }
     };
 
@@ -88,6 +89,8 @@ export class Game {
       try {
         if (client.readyState === WebSocket.OPEN) {
           client.send(jsonMessage);
+        } else {
+          console.warn('Client disconnected, unable to send message');
         }
       } catch (error) {
         console.error('Error broadcasting message:', error);
@@ -132,6 +135,9 @@ export class Game {
       if (!this.lastMove) {
         throw new Error('Invalid move');
       }
+
+      // Broadcast the updated game state immediately after a valid move
+      this.broadcastGameState();
 
       // Check for game end conditions
       if (this.board.isGameOver()) {
@@ -204,3 +210,4 @@ export class Game {
     this.spectators.clear();
   }
 }
+
