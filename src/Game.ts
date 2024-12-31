@@ -147,7 +147,7 @@ export class Game {
         return;
       }
 
-      // Notify opponent of the move
+      // Broadcast the move to all players and spectators
       const moveMessage = {
         type: MOVE,
         payload: {
@@ -155,11 +155,7 @@ export class Game {
           gameId: this.id
         }
       };
-
-      this.sendToPlayer(
-        this.moveCount % 2 === 0 ? this.player2 : this.player1,
-        moveMessage
-      );
+      this.broadcastToAll(moveMessage);
 
       this.moveCount++;
       this.broadcastGameState();
