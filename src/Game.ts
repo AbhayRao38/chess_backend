@@ -122,7 +122,7 @@ export class Game {
     this.spectators.delete(socket);
   }
 
-  makeMove(socket: WebSocket, move: { from: string; to: string; }) {
+  makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
     if (this.isGameOver) return;
     
     // Validate player turn
@@ -156,7 +156,7 @@ export class Game {
       const moveMessage = {
         type: MOVE,
         payload: {
-          move,
+          move: this.lastMove,
           gameId: this.id,
           fen: this.board.fen(),
           moveCount: this.moveCount
