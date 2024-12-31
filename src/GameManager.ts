@@ -3,12 +3,12 @@ import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE } from "./messa
 import { Game } from "./Game";
 
 export class GameManager {
-  private games: Game[];
+  private games: Map<string, Game>;
   private pendingUser: WebSocket | null;
   private users: Set<WebSocket>;
 
   constructor() {
-    this.games = [];
+    this.games = new Map();
     this.pendingUser = null;
     this.users = new Set();
   }
@@ -16,60 +16,25 @@ export class GameManager {
   addUser(socket: WebSocket) {
     this.users.add(socket);
     this.addHandler(socket);
-    this.sendGamesList(socket);
   }
 
   removeUser(socket: WebSocket) {
     this.users.delete(socket);
     
-    // Remove user from any games they're spectating
-    this.games.forEach(game => game.removeSpectator(socket));
-    
-    // Handle player disconnection
-    const gameIndex = this.games.findIndex(
-      game => game.player1 === socket || game.player2 === socket
-    );
-    
-    if (gameIndex !== -1) {
-      const game = this.games[gameIndex];
-      // Notify remaining players and spectators
-      [game.player1, game.player2, ...game.getSpectators()].forEach(client => {
-        if (client && client !== socket && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify({
-            type: 'game_ended',
-            payload: { reason: 'player_disconnected', gameId: game.id }
-          }));
-        }
-      });
-      this.games.splice(gameIndex, 1);
-      this.broadcastGamesList();
-    }
-
-    // Reset pending user if they disconnect
+    // Remove user from pending if they were waiting
     if (this.pendingUser === socket) {
       this.pendingUser = null;
     }
-  }
 
-  private sendGamesList(socket: WebSocket) {
-    if (socket.readyState !== WebSocket.OPEN) return;
-
-    const activeGames = this.games.map(game => ({
-      id: game.id,
-      player1: `Player ${game.id.substring(0, 4)}`,
-      player2: `Player ${game.id.substring(4, 8)}`,
-      status: game.getStatus(),
-      spectators: game.getSpectatorsCount()
-    }));
-    
-    socket.send(JSON.stringify({
-      type: GAMES_LIST,
-      payload: { games: activeGames }
-    }));
-  }
-
-  private broadcastGamesList() {
-    this.users.forEach(user => this.sendGamesList(user));
+    // Remove user from any games they're spectating or playing
+    this.games.forEach((game, id) => {
+      if (game.player1 === socket || game.player2 === socket) {
+        game.cleanup();
+        this.games.delete(id);
+      } else {
+        game.removeSpectator(socket);
+      }
+    });
   }
 
   private addHandler(socket: WebSocket) {
@@ -79,50 +44,103 @@ export class GameManager {
 
         switch (message.type) {
           case INIT_GAME:
-            if (this.pendingUser && this.pendingUser !== socket) {
-              const game = new Game(this.pendingUser, socket);
-              this.games.push(game);
-              this.pendingUser = null;
-              this.broadcastGamesList();
-            } else if (!this.pendingUser) {
-              this.pendingUser = socket;
-            }
+            this.handleInitGame(socket);
             break;
 
           case MOVE:
-            const game = this.games.find(game => 
-              game.player1 === socket || game.player2 === socket
-            );
-            if (game) {
-              game.makeMove(socket, message.payload.move);
-              this.broadcastGamesList();
-            }
+            this.handleMove(socket, message);
             break;
 
           case FETCH_GAMES:
-            this.sendGamesList(socket);
+            this.handleFetchGames(socket);
             break;
 
           case JOIN_SPECTATE:
-            const targetGame = this.games.find(g => g.id === message.payload.gameId);
-            if (targetGame) {
-              targetGame.addSpectator(socket);
-              this.broadcastGamesList();
-            } else {
-              socket.send(JSON.stringify({
-                type: 'error',
-                payload: { message: 'Game not found' }
-              }));
-            }
+            this.handleJoinSpectate(socket, message);
             break;
+
+          default:
+            console.warn('Unknown message type:', message.type);
         }
       } catch (error) {
         console.error('Error handling message:', error);
-        socket.send(JSON.stringify({
-          type: 'error',
-          payload: { message: 'Invalid message format' }
-        }));
+        this.sendError(socket, 'Invalid message format');
       }
     });
+  }
+
+  private handleInitGame(socket: WebSocket) {
+    try {
+      if (this.pendingUser) {
+        const game = new Game(this.pendingUser, socket);
+        this.games.set(game.id, game);
+        this.pendingUser = null;
+      } else {
+        this.pendingUser = socket;
+      }
+    } catch (error) {
+      console.error('Error initializing game:', error);
+      this.sendError(socket, 'Failed to initialize game');
+    }
+  }
+
+  private handleMove(socket: WebSocket, message: any) {
+    try {
+      const game = this.findGameByPlayer(socket);
+      if (game) {
+        game.makeMove(socket, message.payload.move);
+      }
+    } catch (error) {
+      console.error('Error handling move:', error);
+      this.sendError(socket, 'Failed to make move');
+    }
+  }
+
+  private handleFetchGames(socket: WebSocket) {
+    try {
+      const activeGames = Array.from(this.games.values()).map((game, index) => ({
+        id: game.id,
+        player1: `Player ${index * 2 + 1}`,
+        player2: `Player ${index * 2 + 2}`,
+        status: game.getStatus()
+      }));
+
+      socket.send(JSON.stringify({
+        type: GAMES_LIST,
+        payload: { games: activeGames }
+      }));
+    } catch (error) {
+      console.error('Error fetching games:', error);
+      this.sendError(socket, 'Failed to fetch games');
+    }
+  }
+
+  private handleJoinSpectate(socket: WebSocket, message: any) {
+    try {
+      const game = this.games.get(message.payload.gameId);
+      if (game) {
+        game.addSpectator(socket);
+      }
+    } catch (error) {
+      console.error('Error joining spectate:', error);
+      this.sendError(socket, 'Failed to join game as spectator');
+    }
+  }
+
+  private findGameByPlayer(socket: WebSocket): Game | undefined {
+    return Array.from(this.games.values()).find(game => 
+      game.player1 === socket || game.player2 === socket
+    );
+  }
+
+  private sendError(socket: WebSocket, message: string) {
+    try {
+      socket.send(JSON.stringify({
+        type: 'error',
+        payload: { message }
+      }));
+    } catch (error) {
+      console.error('Error sending error message:', error);
+    }
   }
 }
