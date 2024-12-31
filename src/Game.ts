@@ -109,7 +109,8 @@ export class Game {
           blackTime: this.getBlackTime(),
           gameId: this.id,
           status: this.getStatus(),
-          moveCount: this.moveCount
+          moveCount: this.moveCount,
+          turn: this.board.turn()
         }
       });
     } catch (error) {
@@ -135,9 +136,6 @@ export class Game {
       if (!this.lastMove) {
         throw new Error('Invalid move');
       }
-
-      // Broadcast the updated game state immediately after a valid move
-      this.broadcastGameState();
 
       // Check for game end conditions
       if (this.board.isGameOver()) {
@@ -210,4 +208,3 @@ export class Game {
     this.spectators.clear();
   }
 }
-
