@@ -75,8 +75,10 @@ export class GameManager {
         const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
+        console.log(`New game created with ID: ${game.id}`);
       } else {
         this.pendingUser = socket;
+        console.log('User added to pending queue');
       }
     } catch (error) {
       console.error('Error initializing game:', error);
@@ -98,10 +100,11 @@ export class GameManager {
 
   private handleFetchGames(socket: WebSocket) {
     try {
-      const activeGames = Array.from(this.games.values()).map((game, index) => ({
+      console.log('Fetching games, total games:', this.games.size);
+      const activeGames = Array.from(this.games.values()).map((game) => ({
         id: game.id,
-        player1: `Player ${index * 2 + 1}`,
-        player2: `Player ${index * 2 + 2}`,
+        player1: game.player1 ? 'Player 1' : 'Waiting',
+        player2: game.player2 ? 'Player 2' : 'Waiting',
         status: game.getStatus()
       }));
 
