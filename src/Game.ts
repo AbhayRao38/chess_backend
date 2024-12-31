@@ -130,20 +130,27 @@ export class Game {
     if (this.moveCount % 2 === 1 && socket !== this.player2) return;
 
     try {
-      console.log('Received move:', move);
-      console.log('Current FEN before move:', this.board.fen());
-
       // Validate and make the move
       this.lastMove = this.board.move(move);
       
       if (!this.lastMove) {
-        console.error('Invalid move:', move);
-        console.log('Current board state:', this.board.fen());
         throw new Error('Invalid move');
       }
 
-      console.log('Move applied successfully:', this.lastMove);
-      console.log('New FEN after move:', this.board.fen());
+      // Check for game end conditions
+      if (this.board.isGameOver()) {
+        this.isGameOver = true;
+        const gameOverMessage = {
+          type: GAME_OVER,
+          payload: {
+            winner: this.board.turn() === "w" ? "black" : "white",
+            gameId: this.id,
+            reason: this.getGameOverReason()
+          }
+        };
+        this.broadcastToAll(gameOverMessage);
+        return;
+      }
 
       // Broadcast the move to all players and spectators
       const moveMessage = {
@@ -159,20 +166,6 @@ export class Game {
 
       this.moveCount++;
       this.broadcastGameState();
-
-      // Check for game end conditions
-      if (this.board.isGameOver()) {
-        this.isGameOver = true;
-        const gameOverMessage = {
-          type: GAME_OVER,
-          payload: {
-            winner: this.board.turn() === "w" ? "black" : "white",
-            gameId: this.id,
-            reason: this.getGameOverReason()
-          }
-        };
-        this.broadcastToAll(gameOverMessage);
-      }
     } catch (error) {
       console.error('Error making move:', error);
       this.sendToPlayer(socket, {
