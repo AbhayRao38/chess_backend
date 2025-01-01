@@ -81,6 +81,7 @@ export class GameManager {
         this.games.set(game.id, game);
         this.pendingUser = null;
         console.log(`New game created with ID: ${game.id}`);
+        console.log(`Total active games: ${this.games.size}`);
       } else {
         this.pendingUser = socket;
         console.log("User added to pending list");
@@ -114,12 +115,14 @@ export class GameManager {
         status: game.getStatus()
       }));
 
-      console.log("Fetching games, active games:", activeGames);
+      console.log(`Fetching games, total active games: ${this.games.size}`);
+      console.log("Active games:", activeGames);
 
       socket.send(JSON.stringify({
         type: GAMES_LIST,
         payload: { games: activeGames }
       }));
+      console.log("GAMES_LIST sent to client");
     } catch (error) {
       console.error('Error fetching games:', error);
       this.sendError(socket, 'Failed to fetch games');
@@ -157,5 +160,9 @@ export class GameManager {
     } catch (error) {
       console.error('Error sending error message:', error);
     }
+  }
+
+  public getActiveGamesCount(): number {
+    return this.games.size;
   }
 }

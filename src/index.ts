@@ -24,7 +24,12 @@ const gameManager = new GameManager();
 
 wss.on('connection', function connection(ws: WebSocket) {
   try {
+    console.log('New WebSocket connection established');
     gameManager.addUser(ws);
+
+    ws.on('message', (data) => {
+      console.log('Received message:', data.toString());
+    });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
@@ -32,6 +37,7 @@ wss.on('connection', function connection(ws: WebSocket) {
 
     ws.on('close', () => {
       try {
+        console.log('WebSocket connection closed');
         gameManager.removeUser(ws);
       } catch (error) {
         console.error('Error removing user:', error);
