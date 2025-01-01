@@ -11,11 +11,13 @@ export class GameManager {
     this.games = new Map();
     this.pendingUser = null;
     this.users = new Set();
+    console.log("GameManager initialized");
   }
 
   addUser(socket: WebSocket) {
     this.users.add(socket);
     this.addHandler(socket);
+    console.log(`User added. Total users: ${this.users.size}`);
   }
 
   removeUser(socket: WebSocket) {
@@ -23,23 +25,27 @@ export class GameManager {
     
     if (this.pendingUser === socket) {
       this.pendingUser = null;
+      console.log("Pending user removed");
     }
 
     this.games.forEach((game, id) => {
       if (game.player1 === socket || game.player2 === socket) {
         game.cleanup();
         this.games.delete(id);
+        console.log(`Game ${id} removed due to player disconnection`);
       } else {
         game.removeSpectator(socket);
       }
     });
+
+    console.log(`User removed. Total users: ${this.users.size}`);
   }
 
   private addHandler(socket: WebSocket) {
     socket.on("message", (data) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log("Received message:", message); // Add this line for debugging
+        console.log("Received message:", message);
 
         switch (message.type) {
           case INIT_GAME:
@@ -74,10 +80,10 @@ export class GameManager {
         const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
-        console.log(`New game created with ID: ${game.id}`); // Add this line for debugging
+        console.log(`New game created with ID: ${game.id}`);
       } else {
         this.pendingUser = socket;
-        console.log("User added to pending list"); // Add this line for debugging
+        console.log("User added to pending list");
       }
     } catch (error) {
       console.error('Error initializing game:', error);
@@ -90,6 +96,8 @@ export class GameManager {
       const game = this.findGameByPlayer(socket);
       if (game) {
         game.makeMove(socket, message.payload.move);
+      } else {
+        console.log("Move attempted for non-existent game");
       }
     } catch (error) {
       console.error('Error handling move:', error);
@@ -106,7 +114,7 @@ export class GameManager {
         status: game.getStatus()
       }));
 
-      console.log("Fetching games, active games:", activeGames); // Add this line for debugging
+      console.log("Fetching games, active games:", activeGames);
 
       socket.send(JSON.stringify({
         type: GAMES_LIST,
@@ -123,9 +131,9 @@ export class GameManager {
       const game = this.games.get(message.payload.gameId);
       if (game) {
         game.addSpectator(socket);
-        console.log(`Spectator joined game: ${message.payload.gameId}`); // Add this line for debugging
+        console.log(`Spectator joined game: ${message.payload.gameId}`);
       } else {
-        console.log(`Game not found: ${message.payload.gameId}`); // Add this line for debugging
+        console.log(`Game not found: ${message.payload.gameId}`);
         this.sendError(socket, 'Game not found');
       }
     } catch (error) {
