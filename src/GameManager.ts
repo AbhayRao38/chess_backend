@@ -21,12 +21,10 @@ export class GameManager {
   removeUser(socket: WebSocket) {
     this.users.delete(socket);
     
-    // Remove user from pending if they were waiting
     if (this.pendingUser === socket) {
       this.pendingUser = null;
     }
 
-    // Remove user from any games they're spectating or playing
     this.games.forEach((game, id) => {
       if (game.player1 === socket || game.player2 === socket) {
         game.cleanup();
@@ -41,6 +39,7 @@ export class GameManager {
     socket.on("message", (data) => {
       try {
         const message = JSON.parse(data.toString());
+        console.log("Received message:", message); // Add this line for debugging
 
         switch (message.type) {
           case INIT_GAME:
@@ -75,8 +74,10 @@ export class GameManager {
         const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
+        console.log(`New game created with ID: ${game.id}`); // Add this line for debugging
       } else {
         this.pendingUser = socket;
+        console.log("User added to pending list"); // Add this line for debugging
       }
     } catch (error) {
       console.error('Error initializing game:', error);
@@ -105,6 +106,8 @@ export class GameManager {
         status: game.getStatus()
       }));
 
+      console.log("Fetching games, active games:", activeGames); // Add this line for debugging
+
       socket.send(JSON.stringify({
         type: GAMES_LIST,
         payload: { games: activeGames }
@@ -120,6 +123,10 @@ export class GameManager {
       const game = this.games.get(message.payload.gameId);
       if (game) {
         game.addSpectator(socket);
+        console.log(`Spectator joined game: ${message.payload.gameId}`); // Add this line for debugging
+      } else {
+        console.log(`Game not found: ${message.payload.gameId}`); // Add this line for debugging
+        this.sendError(socket, 'Game not found');
       }
     } catch (error) {
       console.error('Error joining spectate:', error);
