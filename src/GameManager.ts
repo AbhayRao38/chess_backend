@@ -45,7 +45,7 @@ export class GameManager {
     socket.on("message", (data) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log("Received message:", message);
+        console.log("GameManager received message:", message);
 
         switch (message.type) {
           case INIT_GAME:
@@ -108,6 +108,7 @@ export class GameManager {
 
   private handleFetchGames(socket: WebSocket) {
     try {
+      console.log("Handling FETCH_GAMES request");
       const activeGames = Array.from(this.games.values()).map((game, index) => ({
         id: game.id,
         player1: `Player ${index * 2 + 1}`,
@@ -118,10 +119,12 @@ export class GameManager {
       console.log(`Fetching games, total active games: ${this.games.size}`);
       console.log("Active games:", activeGames);
 
-      socket.send(JSON.stringify({
+      const response = JSON.stringify({
         type: GAMES_LIST,
         payload: { games: activeGames }
-      }));
+      });
+      console.log("Sending GAMES_LIST response:", response);
+      socket.send(response);
       console.log("GAMES_LIST sent to client");
     } catch (error) {
       console.error('Error fetching games:', error);

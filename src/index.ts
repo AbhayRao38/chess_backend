@@ -8,9 +8,12 @@ const wss = new WebSocketServer({
   verifyClient: (info, done) => {
     try {
       const origin = info.origin || '';
+      console.log("Incoming connection from origin:", origin);
       if (origin !== 'https://chess-frontend-4r5o.onrender.com') {
+        console.log("Connection rejected: invalid origin");
         done(false, 403, 'Forbidden');
       } else {
+        console.log("Connection accepted");
         done(true);
       }
     } catch (error) {
@@ -28,7 +31,7 @@ wss.on('connection', function connection(ws: WebSocket) {
     gameManager.addUser(ws);
 
     ws.on('message', (data) => {
-      console.log('Received message:', data.toString());
+      console.log('Server received message:', data.toString());
     });
 
     ws.on('error', (error) => {
