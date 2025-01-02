@@ -123,9 +123,13 @@ export class GameManager {
         type: GAMES_LIST,
         payload: { games: activeGames }
       });
-      console.log("Sending GAMES_LIST response:", response);
-      socket.send(response);
-      console.log("GAMES_LIST sent to client");
+      
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(response);
+        console.log("GAMES_LIST sent to client");
+      } else {
+        console.warn("Socket not open, cannot send GAMES_LIST");
+      }
     } catch (error) {
       console.error('Error fetching games:', error);
       this.sendError(socket, 'Failed to fetch games');
@@ -167,5 +171,10 @@ export class GameManager {
 
   public getActiveGamesCount(): number {
     return this.games.size;
+  }
+
+  // Add this method to the GameManager class
+  public getGames(): Map<string, Game> {
+    return this.games;
   }
 }

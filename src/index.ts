@@ -7,15 +7,8 @@ const wss = new WebSocketServer({
   port,
   verifyClient: (info, done) => {
     try {
-      const origin = info.origin || '';
-      console.log("Incoming connection from origin:", origin);
-      if (origin !== 'https://chess-frontend-4r5o.onrender.com') {
-        console.log("Connection rejected: invalid origin");
-        done(false, 403, 'Forbidden');
-      } else {
-        console.log("Connection accepted");
-        done(true);
-      }
+      // Accept connections from all origins in production
+      done(true);
     } catch (error) {
       console.error('Error in verifyClient:', error);
       done(false, 500, 'Internal Server Error');
@@ -29,6 +22,19 @@ wss.on('connection', function connection(ws: WebSocket) {
   try {
     console.log('New WebSocket connection established');
     gameManager.addUser(ws);
+
+    // Send initial games list to new connections
+    const activeGames = Array.from(gameManager.getGames().values()).map((game, index) => ({
+      id: game.id,
+      player1: `Player ${index * 2 + 1}`,
+      player2: `Player ${index * 2 + 2}`,
+      status: game.getStatus()
+    }));
+
+    ws.send(JSON.stringify({
+      type: 'games_list',
+      payload: { games: activeGames }
+    }));
 
     ws.on('message', (data) => {
       console.log('Server received message:', data.toString());
@@ -51,17 +57,27 @@ wss.on('connection', function connection(ws: WebSocket) {
   }
 });
 
+// Heartbeat to keep connections alive
+const interval = setInterval(() => {
+  wss.clients.forEach((ws: WebSocket) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.ping();
+    }
+  });
+}, 30000);
+
 wss.on('error', (error) => {
   console.error('WebSocket server error:', error);
 });
 
-console.log(`WebSocket server running on port ${port}`);
-
 // Handle process termination
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Closing WebSocket server...');
+  clearInterval(interval);
   wss.close(() => {
     console.log('WebSocket server closed');
     process.exit(0);
   });
 });
+
+console.log(`WebSocket server running on port ${port}`);
