@@ -1,11 +1,12 @@
 import { WebSocket } from "ws";
-import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE, GAME_STATES_UPDATE } from "./messages";
+import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE, GAME_STATES_UPDATE, HEARTBEAT } from "./messages";
 import { Game, GameState } from "./Game";
 
 export class GameManager {
   private games: Map<string, Game>;
   private pendingUser: WebSocket | null;
   private users: Set<WebSocket>;
+  private heartbeatInterval: NodeJS.Timeout;
 
   constructor() {
     this.games = new Map();
@@ -13,12 +14,14 @@ export class GameManager {
     this.users = new Set();
     console.log("GameManager initialized");
     setInterval(() => this.broadcastGameStates(), 1000); // Broadcast game states every second
+    this.heartbeatInterval = setInterval(() => this.sendHeartbeat(), 30000); // Send heartbeat every 30 seconds
   }
 
   addUser(socket: WebSocket) {
     this.users.add(socket);
     this.addHandler(socket);
     console.log(`User added. Total users: ${this.users.size}`);
+    this.sendGameStates(socket);
   }
 
   removeUser(socket: WebSocket) {
@@ -34,6 +37,7 @@ export class GameManager {
         game.cleanup();
         this.games.delete(id);
         console.log(`Game ${id} removed due to player disconnection`);
+        this.broadcastGameStates();
       } else {
         game.removeSpectator(socket);
       }
@@ -65,6 +69,11 @@ export class GameManager {
             this.handleJoinSpectate(socket, message);
             break;
 
+          case HEARTBEAT:
+            // Respond to heartbeat
+            this.sendToUser(socket, { type: HEARTBEAT });
+            break;
+
           default:
             console.warn('Unknown message type:', message.type);
         }
@@ -83,6 +92,7 @@ export class GameManager {
         this.pendingUser = null;
         console.log(`New game created with ID: ${game.id}`);
         console.log(`Total active games: ${this.games.size}`);
+        this.broadcastGameStates();
       } else {
         this.pendingUser = socket;
         console.log("User added to pending list");
@@ -98,6 +108,7 @@ export class GameManager {
       const game = this.findGameByPlayer(socket);
       if (game) {
         game.makeMove(socket, message.payload.move);
+        this.broadcastGameStates();
       } else {
         console.log("Move attempted for non-existent game");
       }
@@ -110,22 +121,7 @@ export class GameManager {
   private handleFetchGames(socket: WebSocket) {
     try {
       console.log("Handling FETCH_GAMES request");
-      const gameStates = this.getGameStates();
-
-      console.log(`Fetching games, total active games: ${this.games.size}`);
-      console.log("Active games:", gameStates);
-
-      const response = JSON.stringify({
-        type: GAMES_LIST,
-        payload: { games: gameStates }
-      });
-      
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(response);
-        console.log("GAMES_LIST sent to client");
-      } else {
-        console.warn("Socket not open, cannot send GAMES_LIST");
-      }
+      this.sendGameStates(socket);
     } catch (error) {
       console.error('Error fetching games:', error);
       this.sendError(socket, 'Failed to fetch games');
@@ -138,6 +134,7 @@ export class GameManager {
       if (game) {
         game.addSpectator(socket);
         console.log(`Spectator joined game: ${message.payload.gameId}`);
+        this.sendGameState(socket, game.getGameState());
       } else {
         console.log(`Game not found: ${message.payload.gameId}`);
         this.sendError(socket, 'Game not found');
@@ -155,13 +152,19 @@ export class GameManager {
   }
 
   private sendError(socket: WebSocket, message: string) {
+    this.sendToUser(socket, {
+      type: 'error',
+      payload: { message }
+    });
+  }
+
+  private sendToUser(socket: WebSocket, message: any) {
     try {
-      socket.send(JSON.stringify({
-        type: 'error',
-        payload: { message }
-      }));
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(message));
+      }
     } catch (error) {
-      console.error('Error sending error message:', error);
+      console.error('Error sending message to user:', error);
     }
   }
 
@@ -175,15 +178,41 @@ export class GameManager {
 
   private broadcastGameStates() {
     const gameStates = this.getGameStates();
-    const message = JSON.stringify({
+    this.broadcast({
       type: GAME_STATES_UPDATE,
       payload: { games: gameStates }
     });
+  }
 
+  private sendGameStates(socket: WebSocket) {
+    const gameStates = this.getGameStates();
+    this.sendToUser(socket, {
+      type: GAMES_LIST,
+      payload: { games: gameStates }
+    });
+  }
+
+  private sendGameState(socket: WebSocket, gameState: GameState) {
+    this.sendToUser(socket, {
+      type: GAME_STATES_UPDATE,
+      payload: { games: [gameState] }
+    });
+  }
+
+  private broadcast(message: any) {
+    const jsonMessage = JSON.stringify(message);
     this.users.forEach(user => {
       if (user.readyState === WebSocket.OPEN) {
-        user.send(message);
+        user.send(jsonMessage);
       }
     });
+  }
+
+  private sendHeartbeat() {
+    this.broadcast({ type: HEARTBEAT });
+  }
+
+  public cleanup() {
+    clearInterval(this.heartbeatInterval);
   }
 }
