@@ -12,29 +12,37 @@ export interface GameState {
     to: string;
     promotion?: string;
   };
+  whiteTime: number;
+  blackTime: number;
 }
 
 export class Game {
   public player1: WebSocket;
-  public player2: WebSocket;
+  public player2: WebSocket | null;
   public board: Chess;
   public id: string;
   private startTime: Date;
   private moveCount: number;
   private lastMove: Move | null;
-  private spectator: WebSocket | null;
+  private spectators: Set<WebSocket>;
   private isGameOver: boolean;
+  private whiteTime: number;
+  private blackTime: number;
+  private lastMoveTime: number;
 
-  constructor(player1: WebSocket, player2: WebSocket) {
+  constructor(player1: WebSocket) {
     this.player1 = player1;
-    this.player2 = player2;
+    this.player2 = null;
     this.board = new Chess();
     this.startTime = new Date();
     this.moveCount = 0;
     this.lastMove = null;
     this.id = Math.random().toString(36).substring(7);
-    this.spectator = null;
+    this.spectators = new Set();
     this.isGameOver = false;
+    this.whiteTime = 0;
+    this.blackTime = 0;
+    this.lastMoveTime = Date.now();
 
     this.initializeGame();
   }
@@ -50,19 +58,23 @@ export class Game {
         }
       });
 
-      this.sendToPlayer(this.player2, {
-        type: INIT_GAME,
-        payload: { 
-          color: "black",
-          gameId: this.id,
-          fen: this.board.fen()
-        }
-      });
-
       this.broadcastGameState();
     } catch (error) {
       console.error('Error initializing game:', error);
     }
+  }
+
+  public addPlayer2(player2: WebSocket) {
+    this.player2 = player2;
+    this.sendToPlayer(player2, {
+      type: INIT_GAME,
+      payload: { 
+        color: "black",
+        gameId: this.id,
+        fen: this.board.fen()
+      }
+    });
+    this.broadcastGameState();
   }
 
   private sendToPlayer(player: WebSocket, message: any) {
@@ -78,12 +90,20 @@ export class Game {
   private broadcastGameState() {
     if (this.isGameOver) return;
 
+    const currentTime = Date.now();
+    if (this.board.turn() === 'w') {
+      this.whiteTime += currentTime - this.lastMoveTime;
+    } else {
+      this.blackTime += currentTime - this.lastMoveTime;
+    }
+    this.lastMoveTime = currentTime;
+
     const gameState = {
       type: GAME_UPDATE,
       payload: {
         fen: this.board.fen(),
-        whiteTime: this.getWhiteTime(),
-        blackTime: this.getBlackTime(),
+        whiteTime: this.whiteTime,
+        blackTime: this.blackTime,
         lastMove: this.lastMove,
         gameId: this.id,
         status: this.getStatus(),
@@ -97,7 +117,7 @@ export class Game {
 
   private broadcastToAll(message: any) {
     const jsonMessage = JSON.stringify(message);
-    [this.player1, this.player2, this.spectator].filter(Boolean).forEach(client => {
+    [this.player1, this.player2, ...this.spectators].filter(Boolean).forEach(client => {
       try {
         if (client && client.readyState === WebSocket.OPEN) {
           client.send(jsonMessage);
@@ -112,17 +132,13 @@ export class Game {
 
   addSpectator(socket: WebSocket) {
     try {
-      if (this.spectator) {
-        // If there's already a spectator, remove them
-        this.removeSpectator(this.spectator);
-      }
-      this.spectator = socket;
+      this.spectators.add(socket);
       this.sendToPlayer(socket, {
         type: GAME_STATE,
         payload: {
           fen: this.board.fen(),
-          whiteTime: this.getWhiteTime(),
-          blackTime: this.getBlackTime(),
+          whiteTime: this.whiteTime,
+          blackTime: this.blackTime,
           gameId: this.id,
           status: this.getStatus(),
           moveCount: this.moveCount,
@@ -135,17 +151,15 @@ export class Game {
   }
 
   removeSpectator(socket: WebSocket) {
-    if (this.spectator === socket) {
-      this.spectator = null;
-    }
+    this.spectators.delete(socket);
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
     if (this.isGameOver) return;
     
     // Validate player turn
-    if (this.moveCount % 2 === 0 && socket !== this.player1) return;
-    if (this.moveCount % 2 === 1 && socket !== this.player2) return;
+    if (this.board.turn() === 'w' && socket !== this.player1) return;
+    if (this.board.turn() === 'b' && socket !== this.player2) return;
 
     try {
       // Validate and make the move
@@ -209,21 +223,9 @@ export class Game {
     return "In Progress";
   }
 
-  getWhiteTime(): number {
-    return Math.floor((Date.now() - this.startTime.getTime()) / 1000);
-  }
-
-  getBlackTime(): number {
-    return Math.floor((Date.now() - this.startTime.getTime()) / 1000);
-  }
-
-  getLastMove(): Move | null {
-    return this.lastMove;
-  }
-
   cleanup() {
     this.isGameOver = true;
-    this.spectator = null;
+    this.spectators.clear();
   }
 
   getGameState(): GameState {
@@ -236,7 +238,9 @@ export class Game {
         from: this.lastMove.from,
         to: this.lastMove.to,
         promotion: this.lastMove.promotion
-      } : undefined
+      } : undefined,
+      whiteTime: this.whiteTime,
+      blackTime: this.blackTime
     };
   }
 }
