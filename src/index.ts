@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { GameManager } from './GameManager';
-import { GAMES_LIST, HEARTBEAT } from './messages';
+import { GAMES_LIST } from './messages';
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8080;
 
@@ -34,7 +34,6 @@ wss.on('connection', function connection(ws: WebSocket) {
 
     ws.on('message', (data) => {
       console.log('Server received message:', data.toString());
-      gameManager.handleMessage(ws, JSON.parse(data.toString()));
     });
 
     ws.on('error', (error) => {
@@ -58,7 +57,7 @@ wss.on('connection', function connection(ws: WebSocket) {
 const interval = setInterval(() => {
   wss.clients.forEach((ws: WebSocket) => {
     if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: HEARTBEAT }));
+      ws.ping();
     }
   });
 }, 30000);

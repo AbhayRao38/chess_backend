@@ -17,6 +17,7 @@ export class GameManager {
 
   addUser(socket: WebSocket) {
     this.users.add(socket);
+    this.addHandler(socket);
     console.log(`User added. Total users: ${this.users.size}`);
   }
 
@@ -41,41 +42,43 @@ export class GameManager {
     console.log(`User removed. Total users: ${this.users.size}`);
   }
 
-  handleMessage(socket: WebSocket, message: any) {
-    try {
-      console.log("GameManager received message:", message);
+  private addHandler(socket: WebSocket) {
+    socket.on("message", (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        console.log("GameManager received message:", message);
 
-      switch (message.type) {
-        case INIT_GAME:
-          this.handleInitGame(socket);
-          break;
+        switch (message.type) {
+          case INIT_GAME:
+            this.handleInitGame(socket);
+            break;
 
-        case MOVE:
-          this.handleMove(socket, message);
-          break;
+          case MOVE:
+            this.handleMove(socket, message);
+            break;
 
-        case FETCH_GAMES:
-          this.handleFetchGames(socket);
-          break;
+          case FETCH_GAMES:
+            this.handleFetchGames(socket);
+            break;
 
-        case JOIN_SPECTATE:
-          this.handleJoinSpectate(socket, message);
-          break;
+          case JOIN_SPECTATE:
+            this.handleJoinSpectate(socket, message);
+            break;
 
-        default:
-          console.warn('Unknown message type:', message.type);
+          default:
+            console.warn('Unknown message type:', message.type);
+        }
+      } catch (error) {
+        console.error('Error handling message:', error);
+        this.sendError(socket, 'Invalid message format');
       }
-    } catch (error) {
-      console.error('Error handling message:', error);
-      this.sendError(socket, 'Invalid message format');
-    }
+    });
   }
 
   private handleInitGame(socket: WebSocket) {
     try {
       if (this.pendingUser) {
-        const game = new Game(this.pendingUser);
-        game.addPlayer2(socket);
+        const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
         console.log(`New game created with ID: ${game.id}`);
