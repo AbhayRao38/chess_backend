@@ -7,3 +7,4 @@ export const JOIN_SPECTATE = "join_spectate";
 export const GAME_STATE = "game_state";
 export const GAME_UPDATE = "game_update";
 export const PLAYER_JOINED = "player_joined";
+export const GAME_STATES_UPDATE = "game_states_update";

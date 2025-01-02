@@ -2,6 +2,18 @@ import { WebSocket } from "ws";
 import { Chess, Move } from "chess.js";
 import { GAME_OVER, INIT_GAME, MOVE, GAME_UPDATE, PLAYER_JOINED, GAME_STATE } from "./messages";
 
+export interface GameState {
+  id: string;
+  fen: string;
+  turn: 'w' | 'b';
+  status: string;
+  lastMove?: {
+    from: string;
+    to: string;
+    promotion?: string;
+  };
+}
+
 export class Game {
   public player1: WebSocket;
   public player2: WebSocket;
@@ -10,7 +22,7 @@ export class Game {
   private startTime: Date;
   private moveCount: number;
   private lastMove: Move | null;
-  private spectators: Set<WebSocket>;
+  private spectator: WebSocket | null;
   private isGameOver: boolean;
 
   constructor(player1: WebSocket, player2: WebSocket) {
@@ -21,7 +33,7 @@ export class Game {
     this.moveCount = 0;
     this.lastMove = null;
     this.id = Math.random().toString(36).substring(7);
-    this.spectators = new Set();
+    this.spectator = null;
     this.isGameOver = false;
 
     this.initializeGame();
@@ -85,9 +97,9 @@ export class Game {
 
   private broadcastToAll(message: any) {
     const jsonMessage = JSON.stringify(message);
-    [this.player1, this.player2, ...this.spectators].forEach(client => {
+    [this.player1, this.player2, this.spectator].filter(Boolean).forEach(client => {
       try {
-        if (client.readyState === WebSocket.OPEN) {
+        if (client && client.readyState === WebSocket.OPEN) {
           client.send(jsonMessage);
         } else {
           console.warn('Client disconnected, unable to send message');
@@ -100,7 +112,11 @@ export class Game {
 
   addSpectator(socket: WebSocket) {
     try {
-      this.spectators.add(socket);
+      if (this.spectator) {
+        // If there's already a spectator, remove them
+        this.removeSpectator(this.spectator);
+      }
+      this.spectator = socket;
       this.sendToPlayer(socket, {
         type: GAME_STATE,
         payload: {
@@ -119,7 +135,9 @@ export class Game {
   }
 
   removeSpectator(socket: WebSocket) {
-    this.spectators.delete(socket);
+    if (this.spectator === socket) {
+      this.spectator = null;
+    }
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
@@ -205,6 +223,20 @@ export class Game {
 
   cleanup() {
     this.isGameOver = true;
-    this.spectators.clear();
+    this.spectator = null;
+  }
+
+  getGameState(): GameState {
+    return {
+      id: this.id,
+      fen: this.board.fen(),
+      turn: this.board.turn(),
+      status: this.getStatus(),
+      lastMove: this.lastMove ? {
+        from: this.lastMove.from,
+        to: this.lastMove.to,
+        promotion: this.lastMove.promotion
+      } : undefined
+    };
   }
 }

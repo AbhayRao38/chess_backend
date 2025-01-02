@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { GameManager } from './GameManager';
+import { GAMES_LIST } from './messages';
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8080;
 
@@ -24,15 +25,10 @@ wss.on('connection', function connection(ws: WebSocket) {
     gameManager.addUser(ws);
 
     // Send initial games list to new connections
-    const activeGames = Array.from(gameManager.getGames().values()).map((game, index) => ({
-      id: game.id,
-      player1: `Player ${index * 2 + 1}`,
-      player2: `Player ${index * 2 + 2}`,
-      status: game.getStatus()
-    }));
+    const activeGames = gameManager.getGameStates();
 
     ws.send(JSON.stringify({
-      type: 'games_list',
+      type: GAMES_LIST,
       payload: { games: activeGames }
     }));
 

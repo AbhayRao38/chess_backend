@@ -1,6 +1,6 @@
 import { WebSocket } from "ws";
-import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE } from "./messages";
-import { Game } from "./Game";
+import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE, GAME_STATES_UPDATE } from "./messages";
+import { Game, GameState } from "./Game";
 
 export class GameManager {
   private games: Map<string, Game>;
@@ -12,6 +12,7 @@ export class GameManager {
     this.pendingUser = null;
     this.users = new Set();
     console.log("GameManager initialized");
+    setInterval(() => this.broadcastGameStates(), 1000); // Broadcast game states every second
   }
 
   addUser(socket: WebSocket) {
@@ -109,19 +110,14 @@ export class GameManager {
   private handleFetchGames(socket: WebSocket) {
     try {
       console.log("Handling FETCH_GAMES request");
-      const activeGames = Array.from(this.games.values()).map((game, index) => ({
-        id: game.id,
-        player1: `Player ${index * 2 + 1}`,
-        player2: `Player ${index * 2 + 2}`,
-        status: game.getStatus()
-      }));
+      const gameStates = this.getGameStates();
 
       console.log(`Fetching games, total active games: ${this.games.size}`);
-      console.log("Active games:", activeGames);
+      console.log("Active games:", gameStates);
 
       const response = JSON.stringify({
         type: GAMES_LIST,
-        payload: { games: activeGames }
+        payload: { games: gameStates }
       });
       
       if (socket.readyState === WebSocket.OPEN) {
@@ -173,8 +169,21 @@ export class GameManager {
     return this.games.size;
   }
 
-  // Add this method to the GameManager class
-  public getGames(): Map<string, Game> {
-    return this.games;
+  public getGameStates(): GameState[] {
+    return Array.from(this.games.values()).map(game => game.getGameState());
+  }
+
+  private broadcastGameStates() {
+    const gameStates = this.getGameStates();
+    const message = JSON.stringify({
+      type: GAME_STATES_UPDATE,
+      payload: { games: gameStates }
+    });
+
+    this.users.forEach(user => {
+      if (user.readyState === WebSocket.OPEN) {
+        user.send(message);
+      }
+    });
   }
 }
