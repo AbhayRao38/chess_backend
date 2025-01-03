@@ -13,6 +13,7 @@ export class GameManager {
     this.users = new Set();
     console.log("GameManager initialized");
     setInterval(() => this.broadcastGameStates(), 1000); // Broadcast game states every second
+    setInterval(() => this.logActiveGames(), 60000); // Log active games every minute
   }
 
   addUser(socket: WebSocket) {
@@ -184,6 +185,13 @@ export class GameManager {
       if (user.readyState === WebSocket.OPEN) {
         user.send(message);
       }
+    });
+  }
+
+  private logActiveGames() {
+    console.log(`Current active games: ${this.games.size}`);
+    this.games.forEach((game, id) => {
+      console.log(`Game ${id}: ${game.getStatus()}`);
     });
   }
 }
