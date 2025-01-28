@@ -24,6 +24,9 @@ export class Game {
   private lastMove: Move | null;
   private spectator: WebSocket | null;
   private isGameOver: boolean;
+  private whiteTimeRemaining: number = 600; // 10 minutes in seconds
+  private blackTimeRemaining: number = 600; // 10 minutes in seconds
+  private lastUpdateTime: number;
 
   constructor(player1: WebSocket, player2: WebSocket) {
     this.player1 = player1;
@@ -35,6 +38,7 @@ export class Game {
     this.id = Math.random().toString(36).substring(7);
     this.spectator = null;
     this.isGameOver = false;
+    this.lastUpdateTime = Date.now();
 
     this.initializeGame();
   }
@@ -129,6 +133,9 @@ export class Game {
           turn: this.board.turn()
         }
       });
+
+      // Add spectator to broadcast list for future updates
+      this.broadcastGameState();
     } catch (error) {
       console.error('Error adding spectator:', error);
     }
@@ -142,12 +149,22 @@ export class Game {
 
   makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
     if (this.isGameOver) return;
-    
+
     // Validate player turn
     if (this.moveCount % 2 === 0 && socket !== this.player1) return;
     if (this.moveCount % 2 === 1 && socket !== this.player2) return;
 
     try {
+      // Update timers before making the move
+      const now = Date.now();
+      const elapsed = (now - this.lastUpdateTime) / 1000;
+      if (this.board.turn() === 'w') {
+        this.whiteTimeRemaining -= elapsed;
+      } else {
+        this.blackTimeRemaining -= elapsed;
+      }
+      this.lastUpdateTime = now;
+
       // Validate and make the move
       this.lastMove = this.board.move(move);
       
@@ -210,11 +227,19 @@ export class Game {
   }
 
   getWhiteTime(): number {
-    return Math.floor((Date.now() - this.startTime.getTime()) / 1000);
+    if (this.board.turn() === 'w') {
+      const elapsed = (Date.now() - this.lastUpdateTime) / 1000;
+      return Math.max(0, this.whiteTimeRemaining - elapsed);
+    }
+    return this.whiteTimeRemaining;
   }
 
   getBlackTime(): number {
-    return Math.floor((Date.now() - this.startTime.getTime()) / 1000);
+    if (this.board.turn() === 'b') {
+      const elapsed = (Date.now() - this.lastUpdateTime) / 1000;
+      return Math.max(0, this.blackTimeRemaining - elapsed);
+    }
+    return this.blackTimeRemaining;
   }
 
   getLastMove(): Move | null {

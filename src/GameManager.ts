@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE, GAME_STATES_UPDATE } from "./messages";
+import { INIT_GAME, MOVE, FETCH_GAMES, GAMES_LIST, JOIN_SPECTATE, GAME_STATES_UPDATE, GAME_OVER } from "./messages";
 import { Game, GameState } from "./Game";
 
 export class GameManager {
@@ -13,7 +13,6 @@ export class GameManager {
     this.users = new Set();
     console.log("GameManager initialized");
     setInterval(() => this.broadcastGameStates(), 1000); // Broadcast game states every second
-    setInterval(() => this.logActiveGames(), 60000); // Log active games every minute
   }
 
   addUser(socket: WebSocket) {
@@ -32,6 +31,19 @@ export class GameManager {
 
     this.games.forEach((game, id) => {
       if (game.player1 === socket || game.player2 === socket) {
+        // Notify the other player or spectators
+        const opponent = game.player1 === socket ? game.player2 : game.player1;
+        if (opponent && opponent.readyState === WebSocket.OPEN) {
+          opponent.send(JSON.stringify({
+            type: GAME_OVER,
+            payload: {
+              winner: opponent === game.player1 ? "white" : "black",
+              gameId: game.id,
+              reason: "Opponent disconnected"
+            }
+          }));
+        }
+
         game.cleanup();
         this.games.delete(id);
         console.log(`Game ${id} removed due to player disconnection`);
@@ -185,13 +197,6 @@ export class GameManager {
       if (user.readyState === WebSocket.OPEN) {
         user.send(message);
       }
-    });
-  }
-
-  private logActiveGames() {
-    console.log(`Current active games: ${this.games.size}`);
-    this.games.forEach((game, id) => {
-      console.log(`Game ${id}: ${game.getStatus()}`);
     });
   }
 }
