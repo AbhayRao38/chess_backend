@@ -26,15 +26,10 @@ wss.on('connection', function connection(ws: WebSocket) {
 
     // Send initial games list to new connections
     const activeGames = gameManager.getGameStates();
-
     ws.send(JSON.stringify({
       type: GAMES_LIST,
       payload: { games: activeGames }
     }));
-
-    ws.on('message', (data) => {
-      console.log('Server received message:', data.toString());
-    });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);

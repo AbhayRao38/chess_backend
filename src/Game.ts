@@ -41,6 +41,9 @@ export class Game {
     this.lastUpdateTime = Date.now();
 
     this.initializeGame();
+
+    // Broadcast game state every second for timer updates
+    setInterval(() => this.broadcastGameState(), 1000);
   }
 
   private initializeGame() {
@@ -96,6 +99,7 @@ export class Game {
       }
     };
 
+    console.log('Broadcasting game state:', gameState);
     this.broadcastToAll(gameState);
   }
 
@@ -185,12 +189,17 @@ export class Game {
       const moveMessage = {
         type: MOVE,
         payload: {
-          move: this.lastMove,
+          move: {
+            from: this.lastMove.from,
+            to: this.lastMove.to,
+            promotion: this.lastMove.promotion
+          },
           gameId: this.id,
           fen: this.board.fen(),
           moveCount: this.moveCount
         }
       };
+      console.log('Broadcasting move:', moveMessage);
       this.broadcastToAll(moveMessage);
 
       this.moveCount++;
