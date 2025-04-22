@@ -22,7 +22,7 @@ export class Game {
   private startTime: Date;
   private moveCount: number;
   private lastMove: Move | null;
-  private spectator: WebSocket | null;
+  private spectators: Set<WebSocket>;
   private isGameOver: boolean;
   private whiteTimeRemaining: number = 600; // 10 minutes in seconds
   private blackTimeRemaining: number = 600; // 10 minutes in seconds
@@ -36,7 +36,7 @@ export class Game {
     this.moveCount = 0;
     this.lastMove = null;
     this.id = Math.random().toString(36).substring(7);
-    this.spectator = null;
+    this.spectators = new Set();
     this.isGameOver = false;
     this.lastUpdateTime = Date.now();
 
@@ -101,7 +101,7 @@ export class Game {
 
   private broadcastToAll(message: any) {
     const jsonMessage = JSON.stringify(message);
-    [this.player1, this.player2, this.spectator].filter(Boolean).forEach(client => {
+    [this.player1, this.player2, ...this.spectators].forEach(client => {
       try {
         if (client && client.readyState === WebSocket.OPEN) {
           client.send(jsonMessage);
@@ -116,11 +116,7 @@ export class Game {
 
   addSpectator(socket: WebSocket) {
     try {
-      if (this.spectator) {
-        // If there's already a spectator, remove them
-        this.removeSpectator(this.spectator);
-      }
-      this.spectator = socket;
+      this.spectators.add(socket);
       this.sendToPlayer(socket, {
         type: GAME_STATE,
         payload: {
@@ -134,7 +130,7 @@ export class Game {
         }
       });
 
-      // Add spectator to broadcast list for future updates
+      // Broadcast game state to new spectator
       this.broadcastGameState();
     } catch (error) {
       console.error('Error adding spectator:', error);
@@ -142,9 +138,7 @@ export class Game {
   }
 
   removeSpectator(socket: WebSocket) {
-    if (this.spectator === socket) {
-      this.spectator = null;
-    }
+    this.spectators.delete(socket);
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
@@ -248,7 +242,7 @@ export class Game {
 
   cleanup() {
     this.isGameOver = true;
-    this.spectator = null;
+    this.spectators.clear();
   }
 
   getGameState(): GameState {
