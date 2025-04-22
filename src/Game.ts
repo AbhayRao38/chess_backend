@@ -24,8 +24,8 @@ export class Game {
   private lastMove: Move | null;
   private spectators: Set<WebSocket>;
   private isGameOver: boolean;
-  private whiteTimeRemaining: number = 600;
-  private blackTimeRemaining: number = 600;
+  private whiteTimeRemaining: number;
+  private blackTimeRemaining: number;
   private lastUpdateTime: number;
 
   constructor(player1: WebSocket, player2: WebSocket) {
@@ -38,11 +38,13 @@ export class Game {
     this.id = Math.random().toString(36).substring(7);
     this.spectators = new Set();
     this.isGameOver = false;
+    this.whiteTimeRemaining = 600;
+    this.blackTimeRemaining = 600;
     this.lastUpdateTime = Date.now();
-    console.log(`New game created with ID: ${this.id}`);
+    console.log(`[Game ${this.id}] Created new game with players`);
     this.initializeGame();
     setInterval(() => {
-      console.log(`Timer interval triggered for game ${this.id}`);
+      console.log(`[Game ${this.id}] Timer interval triggered`);
       this.broadcastGameState();
     }, 1000);
   }
@@ -69,13 +71,13 @@ export class Game {
           blackTime: this.blackTimeRemaining
         }
       };
-      console.log('Sending INIT_GAME to player1:', initMessage1);
-      console.log('Sending INIT_GAME to player2:', initMessage2);
+      console.log(`[Game ${this.id}] Sending INIT_GAME to player1:`, JSON.stringify(initMessage1));
+      console.log(`[Game ${this.id}] Sending INIT_GAME to player2:`, JSON.stringify(initMessage2));
       this.sendToPlayer(this.player1, initMessage1);
       this.sendToPlayer(this.player2, initMessage2);
       this.broadcastGameState();
     } catch (error) {
-      console.error('Error initializing game:', error);
+      console.error(`[Game ${this.id}] Error initializing game:`, error);
     }
   }
 
@@ -83,16 +85,20 @@ export class Game {
     try {
       if (player.readyState === WebSocket.OPEN) {
         player.send(JSON.stringify(message));
+        console.log(`[Game ${this.id}] Sent ${message.type} to player`);
       } else {
-        console.warn('Player socket not open:', message.type);
+        console.warn(`[Game ${this.id}] Player socket not open for ${message.type}`);
       }
     } catch (error) {
-      console.error('Error sending message to player:', error);
+      console.error(`[Game ${this.id}] Error sending ${message.type}:`, error);
     }
   }
 
   private broadcastGameState() {
-    if (this.isGameOver) return;
+    if (this.isGameOver) {
+      console.log(`[Game ${this.id}] Skipping GAME_UPDATE: game is over`);
+      return;
+    }
     const now = Date.now();
     const elapsed = (now - this.lastUpdateTime) / 1000;
     if (this.board.turn() === 'w') {
@@ -119,23 +125,23 @@ export class Game {
         turn: this.board.turn()
       }
     };
-    console.log(`Broadcasting GAME_UPDATE for game ${this.id}:`, gameState);
+    console.log(`[Game ${this.id}] Broadcasting GAME_UPDATE:`, JSON.stringify(gameState));
     this.broadcastToAll(gameState);
   }
 
   private broadcastToAll(message: any) {
     const jsonMessage = JSON.stringify(message);
     const clients = [this.player1, this.player2, ...this.spectators];
-    console.log(`Broadcasting to ${clients.length} clients for game ${this.id}:`, message.type);
+    console.log(`[Game ${this.id}] Broadcasting ${message.type} to ${clients.length} clients`);
     clients.forEach(client => {
       try {
         if (client && client.readyState === WebSocket.OPEN) {
           client.send(jsonMessage);
         } else {
-          console.warn(`Client disconnected or not open for game ${this.id}:`, message.type);
+          console.warn(`[Game ${this.id}] Client not open for ${message.type}`);
         }
       } catch (error) {
-        console.error(`Error broadcasting message for game ${this.id}:`, error);
+        console.error(`[Game ${this.id}] Error broadcasting ${message.type}:`, error);
       }
     });
   }
@@ -155,26 +161,35 @@ export class Game {
           turn: this.board.turn()
         }
       };
-      console.log(`Sending GAME_STATE to spectator for game ${this.id}:`, gameStateMessage);
+      console.log(`[Game ${this.id}] Sending GAME_STATE to spectator:`, JSON.stringify(gameStateMessage));
       this.sendToPlayer(socket, gameStateMessage);
       this.broadcastGameState();
     } catch (error) {
-      console.error('Error adding spectator:', error);
+      console.error(`[Game ${this.id}] Error adding spectator:`, error);
     }
   }
 
   removeSpectator(socket: WebSocket) {
     this.spectators.delete(socket);
-    console.log(`Spectator removed from game ${this.id}`);
+    console.log(`[Game ${this.id}] Spectator removed`);
   }
 
   makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
-    if (this.isGameOver) return;
-    if (this.moveCount % 2 === 0 && socket !== this.player1) return;
-    if (this.moveCount % 2 === 1 && socket !== this.player2) return;
+    if (this.isGameOver) {
+      console.log(`[Game ${this.id}] Move rejected: game is over`);
+      return;
+    }
+    if (this.moveCount % 2 === 0 && socket !== this.player1) {
+      console.log(`[Game ${this.id}] Move rejected: not white's turn or wrong player`);
+      return;
+    }
+    if (this.moveCount % 2 === 1 && socket !== this.player2) {
+      console.log(`[Game ${this.id}] Move rejected: not black's turn or wrong player`);
+      return;
+    }
 
     try {
-      console.log(`Processing move for game ${this.id}:`, move);
+      console.log(`[Game ${this.id}] Processing move:`, move);
       const now = Date.now();
       const elapsed = (now - this.lastUpdateTime) / 1000;
       if (this.board.turn() === 'w') {
@@ -199,7 +214,7 @@ export class Game {
             reason: this.getGameOverReason()
           }
         };
-        console.log(`Broadcasting GAME_OVER for game ${this.id}:`, gameOverMessage);
+        console.log(`[Game ${this.id}] Broadcasting GAME_OVER:`, JSON.stringify(gameOverMessage));
         this.broadcastToAll(gameOverMessage);
         return;
       }
@@ -217,13 +232,13 @@ export class Game {
           moveCount: this.moveCount
         }
       };
-      console.log(`Broadcasting MOVE for game ${this.id}:`, moveMessage);
+      console.log(`[Game ${this.id}] Broadcasting MOVE:`, JSON.stringify(moveMessage));
       this.broadcastToAll(moveMessage);
 
       this.moveCount++;
       this.broadcastGameState();
     } catch (error) {
-      console.error(`Error making move for game ${this.id}:`, error);
+      console.error(`[Game ${this.id}] Error making move:`, error);
       this.sendToPlayer(socket, {
         type: 'error',
         payload: { message: 'Invalid move' }
@@ -262,7 +277,7 @@ export class Game {
   cleanup() {
     this.isGameOver = true;
     this.spectators.clear();
-    console.log(`Game ${this.id} cleaned up`);
+    console.log(`[Game ${this.id}] Cleaned up`);
   }
 
   getGameState(): GameState {

@@ -11,21 +11,21 @@ export class GameManager {
     this.games = new Map();
     this.pendingUser = null;
     this.users = new Set();
-    console.log("GameManager initialized");
+    console.log("[GameManager] Initialized GameManager");
     setInterval(() => this.broadcastGameStates(), 1000);
   }
 
   addUser(socket: WebSocket) {
     this.users.add(socket);
     this.addHandler(socket);
-    console.log(`User added. Total users: ${this.users.size}`);
+    console.log(`[GameManager] Added user. Total users: ${this.users.size}`);
   }
 
   removeUser(socket: WebSocket) {
     this.users.delete(socket);
     if (this.pendingUser === socket) {
       this.pendingUser = null;
-      console.log("Pending user removed");
+      console.log("[GameManager] Removed pending user");
     }
     this.games.forEach((game, id) => {
       if (game.player1 === socket || game.player2 === socket) {
@@ -42,20 +42,21 @@ export class GameManager {
         }
         game.cleanup();
         this.games.delete(id);
-        console.log(`Game ${id} removed due to player disconnection`);
+        console.log(`[GameManager] Removed game ${id} due to player disconnection`);
       } else {
         game.removeSpectator(socket);
       }
     });
-    console.log(`User removed. Total users: ${this.users.size}`);
+    console.log(`[GameManager] Removed user. Total users: ${this.users.size}`);
   }
 
   private addHandler(socket: WebSocket) {
     socket.on("message", (data) => {
       try {
-        console.log('Raw message received:', data.toString());
-        const message = JSON.parse(data.toString());
-        console.log("GameManager received message:", message);
+        const messageStr = data.toString();
+        console.log(`[GameManager] Received message:`, messageStr);
+        const message = JSON.parse(messageStr);
+        console.log(`[GameManager] Parsed message:`, message);
 
         switch (message.type) {
           case INIT_GAME:
@@ -71,10 +72,10 @@ export class GameManager {
             this.handleJoinSpectate(socket, message);
             break;
           default:
-            console.warn('Unknown message type:', message.type);
+            console.warn(`[GameManager] Unknown message type: ${message.type}`);
         }
       } catch (error) {
-        console.error('Error handling message:', error);
+        console.error(`[GameManager] Error handling message:`, error);
         this.sendError(socket, 'Invalid message format');
       }
     });
@@ -86,13 +87,14 @@ export class GameManager {
         const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
-        console.log(`New game created with ID: ${game.id}, Total games: ${this.games.size}`);
+        console.log(`[GameManager] Created game ${game.id}. Total games: ${this.games.size}`);
+        this.broadcastGameStates();
       } else {
         this.pendingUser = socket;
-        console.log("User added to pending list");
+        console.log(`[GameManager] Added user to pending list`);
       }
     } catch (error) {
-      console.error('Error initializing game:', error);
+      console.error(`[GameManager] Error initializing game:`, error);
       this.sendError(socket, 'Failed to initialize game');
     }
   }
@@ -101,34 +103,35 @@ export class GameManager {
     try {
       const game = this.findGameByPlayer(socket);
       if (game) {
-        console.log('Handling move for game:', game.id, 'Payload:', message.payload);
+        console.log(`[GameManager] Processing move for game ${game.id}:`, message.payload);
         game.makeMove(socket, message.payload.move);
       } else {
-        console.log("Move attempted for non-existent game");
+        console.warn(`[GameManager] No game found for move`);
+        this.sendError(socket, 'Game not found');
       }
     } catch (error) {
-      console.error('Error handling move:', error);
+      console.error(`[GameManager] Error handling move:`, error);
       this.sendError(socket, 'Failed to make move');
     }
   }
 
   private handleFetchGames(socket: WebSocket) {
     try {
-      console.log("Handling FETCH_GAMES request");
+      console.log(`[GameManager] Processing FETCH_GAMES`);
       const gameStates = this.getGameStates();
-      console.log(`Sending GAMES_LIST with ${gameStates.length} games`, gameStates);
-      const response = JSON.stringify({
+      const response = {
         type: GAMES_LIST,
         payload: { games: gameStates }
-      });
+      };
+      console.log(`[GameManager] Sending GAMES_LIST with ${gameStates.length} games:`, JSON.stringify(gameStates));
       if (socket.readyState === WebSocket.OPEN) {
-        socket.send(response);
-        console.log("GAMES_LIST sent to client:", response);
+        socket.send(JSON.stringify(response));
+        console.log(`[GameManager] Sent GAMES_LIST to client`);
       } else {
-        console.warn("Socket not open, cannot send GAMES_LIST");
+        console.warn(`[GameManager] Cannot send GAMES_LIST: socket not open`);
       }
     } catch (error) {
-      console.error('Error fetching games:', error);
+      console.error(`[GameManager] Error fetching games:`, error);
       this.sendError(socket, 'Failed to fetch games');
     }
   }
@@ -137,14 +140,14 @@ export class GameManager {
     try {
       const game = this.games.get(message.payload.gameId);
       if (game) {
+        console.log(`[GameManager] Spectator joining game ${message.payload.gameId}`);
         game.addSpectator(socket);
-        console.log(`Spectator joined game: ${message.payload.gameId}`);
       } else {
-        console.log(`Game not found: ${message.payload.gameId}`);
+        console.warn(`[GameManager] Game not found: ${message.payload.gameId}`);
         this.sendError(socket, 'Game not found');
       }
     } catch (error) {
-      console.error('Error joining spectate:', error);
+      console.error(`[GameManager] Error joining spectate:`, error);
       this.sendError(socket, 'Failed to join game as spectator');
     }
   }
@@ -161,8 +164,9 @@ export class GameManager {
         type: 'error',
         payload: { message }
       }));
+      console.log(`[GameManager] Sent error: ${message}`);
     } catch (error) {
-      console.error('Error sending error message:', error);
+      console.error(`[GameManager] Error sending error message:`, error);
     }
   }
 
@@ -176,14 +180,14 @@ export class GameManager {
 
   private broadcastGameStates() {
     const gameStates = this.getGameStates();
-    const message = JSON.stringify({
+    const message = {
       type: GAME_STATES_UPDATE,
       payload: { games: gameStates }
-    });
-    console.log('Broadcasting GAME_STATES_UPDATE:', gameStates);
+    };
+    console.log(`[GameManager] Broadcasting GAME_STATES_UPDATE with ${gameStates.length} games`);
     this.users.forEach(user => {
       if (user.readyState === WebSocket.OPEN) {
-        user.send(message);
+        user.send(JSON.stringify(message));
       }
     });
   }
