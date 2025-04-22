@@ -8,6 +8,7 @@ const wss = new WebSocketServer({
   port,
   verifyClient: (info, done) => {
     try {
+      console.log('Verifying client connection:', info.origin);
       // Accept connections from all origins in production
       done(true);
     } catch (error) {
@@ -26,6 +27,7 @@ wss.on('connection', function connection(ws: WebSocket) {
 
     // Send initial games list to new connections
     const activeGames = gameManager.getGameStates();
+    console.log('Sending initial GAMES_LIST:', activeGames);
     ws.send(JSON.stringify({
       type: GAMES_LIST,
       payload: { games: activeGames }
@@ -52,6 +54,7 @@ wss.on('connection', function connection(ws: WebSocket) {
 const interval = setInterval(() => {
   wss.clients.forEach((ws: WebSocket) => {
     if (ws.readyState === WebSocket.OPEN) {
+      console.log('Sending ping to client');
       ws.ping();
     }
   });

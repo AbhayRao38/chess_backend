@@ -58,6 +58,7 @@ export class GameManager {
   private addHandler(socket: WebSocket) {
     socket.on("message", (data) => {
       try {
+        console.log('Raw message received:', data.toString());
         const message = JSON.parse(data.toString());
         console.log("GameManager received message:", message);
 
@@ -124,7 +125,6 @@ export class GameManager {
     try {
       console.log("Handling FETCH_GAMES request");
       const gameStates = this.getGameStates();
-
       console.log(`Fetching games, total active games: ${this.games.size}`);
       console.log("Active games:", gameStates);
 
@@ -135,7 +135,7 @@ export class GameManager {
       
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(response);
-        console.log("GAMES_LIST sent to client");
+        console.log("GAMES_LIST sent to client:", response);
       } else {
         console.warn("Socket not open, cannot send GAMES_LIST");
       }
