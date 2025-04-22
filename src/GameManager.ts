@@ -12,7 +12,7 @@ export class GameManager {
     this.pendingUser = null;
     this.users = new Set();
     console.log("GameManager initialized");
-    setInterval(() => this.broadcastGameStates(), 1000); // Broadcast game states every second
+    setInterval(() => this.broadcastGameStates(), 1000);
   }
 
   addUser(socket: WebSocket) {
@@ -23,15 +23,12 @@ export class GameManager {
 
   removeUser(socket: WebSocket) {
     this.users.delete(socket);
-    
     if (this.pendingUser === socket) {
       this.pendingUser = null;
       console.log("Pending user removed");
     }
-
     this.games.forEach((game, id) => {
       if (game.player1 === socket || game.player2 === socket) {
-        // Notify the other player or spectators
         const opponent = game.player1 === socket ? game.player2 : game.player1;
         if (opponent && opponent.readyState === WebSocket.OPEN) {
           opponent.send(JSON.stringify({
@@ -43,7 +40,6 @@ export class GameManager {
             }
           }));
         }
-
         game.cleanup();
         this.games.delete(id);
         console.log(`Game ${id} removed due to player disconnection`);
@@ -51,7 +47,6 @@ export class GameManager {
         game.removeSpectator(socket);
       }
     });
-
     console.log(`User removed. Total users: ${this.users.size}`);
   }
 
@@ -66,19 +61,15 @@ export class GameManager {
           case INIT_GAME:
             this.handleInitGame(socket);
             break;
-
           case MOVE:
             this.handleMove(socket, message);
             break;
-
           case FETCH_GAMES:
             this.handleFetchGames(socket);
             break;
-
           case JOIN_SPECTATE:
             this.handleJoinSpectate(socket, message);
             break;
-
           default:
             console.warn('Unknown message type:', message.type);
         }
@@ -95,8 +86,7 @@ export class GameManager {
         const game = new Game(this.pendingUser, socket);
         this.games.set(game.id, game);
         this.pendingUser = null;
-        console.log(`New game created with ID: ${game.id}`);
-        console.log(`Total active games: ${this.games.size}`);
+        console.log(`New game created with ID: ${game.id}, Total games: ${this.games.size}`);
       } else {
         this.pendingUser = socket;
         console.log("User added to pending list");
@@ -111,6 +101,7 @@ export class GameManager {
     try {
       const game = this.findGameByPlayer(socket);
       if (game) {
+        console.log('Handling move for game:', game.id);
         game.makeMove(socket, message.payload.move);
       } else {
         console.log("Move attempted for non-existent game");
@@ -125,14 +116,11 @@ export class GameManager {
     try {
       console.log("Handling FETCH_GAMES request");
       const gameStates = this.getGameStates();
-      console.log(`Fetching games, total active games: ${this.games.size}`);
-      console.log("Active games:", gameStates);
-
+      console.log(`Sending GAMES_LIST with ${gameStates.length} games`, gameStates);
       const response = JSON.stringify({
         type: GAMES_LIST,
         payload: { games: gameStates }
       });
-      
       if (socket.readyState === WebSocket.OPEN) {
         socket.send(response);
         console.log("GAMES_LIST sent to client:", response);
@@ -192,7 +180,7 @@ export class GameManager {
       type: GAME_STATES_UPDATE,
       payload: { games: gameStates }
     });
-
+    console.log('Broadcasting GAME_STATES_UPDATE:', gameStates);
     this.users.forEach(user => {
       if (user.readyState === WebSocket.OPEN) {
         user.send(message);

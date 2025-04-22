@@ -9,7 +9,6 @@ const wss = new WebSocketServer({
   verifyClient: (info, done) => {
     try {
       console.log('Verifying client connection:', info.origin);
-      // Accept connections from all origins in production
       done(true);
     } catch (error) {
       console.error('Error in verifyClient:', error);
@@ -32,6 +31,23 @@ wss.on('connection', function connection(ws: WebSocket) {
       type: GAMES_LIST,
       payload: { games: activeGames }
     }));
+
+    ws.on('message', (data) => {
+      console.log('Received message:', data.toString());
+      try {
+        const message = JSON.parse(data.toString());
+        if (message.type === 'fetch_games') {
+          console.log('Handling FETCH_GAMES in index.ts as fallback');
+          const activeGames = gameManager.getGameStates();
+          ws.send(JSON.stringify({
+            type: GAMES_LIST,
+            payload: { games: activeGames }
+          }));
+        }
+      } catch (error) {
+        console.error('Error parsing message:', error);
+      }
+    });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
@@ -64,7 +80,6 @@ wss.on('error', (error) => {
   console.error('WebSocket server error:', error);
 });
 
-// Handle process termination
 process.on('SIGTERM', () => {
   console.log('SIGTERM received. Closing WebSocket server...');
   clearInterval(interval);
