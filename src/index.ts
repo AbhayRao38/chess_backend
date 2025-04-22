@@ -1,6 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { GameManager } from './GameManager';
-import { GAMES_LIST } from './messages';
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8080;
 
@@ -24,29 +23,8 @@ wss.on('connection', function connection(ws: WebSocket) {
     console.log('New WebSocket connection established');
     gameManager.addUser(ws);
 
-    // Send initial games list to new connections
-    const activeGames = gameManager.getGameStates();
-    console.log('Sending initial GAMES_LIST:', activeGames);
-    ws.send(JSON.stringify({
-      type: GAMES_LIST,
-      payload: { games: activeGames }
-    }));
-
     ws.on('message', (data) => {
       console.log('Received message:', data.toString());
-      try {
-        const message = JSON.parse(data.toString());
-        if (message.type === 'fetch_games') {
-          console.log('Handling FETCH_GAMES in index.ts as fallback');
-          const activeGames = gameManager.getGameStates();
-          ws.send(JSON.stringify({
-            type: GAMES_LIST,
-            payload: { games: activeGames }
-          }));
-        }
-      } catch (error) {
-        console.error('Error parsing message:', error);
-      }
     });
 
     ws.on('error', (error) => {
@@ -66,7 +44,6 @@ wss.on('connection', function connection(ws: WebSocket) {
   }
 });
 
-// Heartbeat to keep connections alive
 const interval = setInterval(() => {
   wss.clients.forEach((ws: WebSocket) => {
     if (ws.readyState === WebSocket.OPEN) {

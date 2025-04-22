@@ -101,7 +101,7 @@ export class GameManager {
     try {
       const game = this.findGameByPlayer(socket);
       if (game) {
-        console.log('Handling move for game:', game.id);
+        console.log('Handling move for game:', game.id, 'Payload:', message.payload);
         game.makeMove(socket, message.payload.move);
       } else {
         console.log("Move attempted for non-existent game");
