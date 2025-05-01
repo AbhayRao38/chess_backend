@@ -1,173 +1,267 @@
-import { WebSocket } from 'ws';
-import { Chess } from 'chess.js';
-import { v4 as uuidv4 } from 'uuid';
-import { INIT_GAME, MOVE, GAME_OVER, GAME_UPDATE } from './messages';
+import { WebSocket } from "ws";
+import { Chess, Move } from "chess.js";
+import { GAME_OVER, INIT_GAME, MOVE, GAME_UPDATE, PLAYER_JOINED, GAME_STATE } from "./messages";
+
+export interface GameState {
+  id: string;
+  fen: string;
+  turn: 'w' | 'b';
+  status: string;
+  lastMove?: {
+    from: string;
+    to: string;
+    promotion?: string;
+  };
+}
 
 export class Game {
+  public player1: WebSocket;
+  public player2: WebSocket;
+  public board: Chess;
   public id: string;
-  private chess: Chess;
-  private whitePlayer: { socket: WebSocket; clientId: string } | null;
-  private blackPlayer: { socket: WebSocket; clientId: string } | null;
-  private whiteTime: number;
-  private blackTime: number;
-  private lastMoveTime: number;
-  private interval: NodeJS.Timeout | null;
+  private startTime: Date;
+  private moveCount: number;
+  private lastMove: Move | null;
+  private spectator: WebSocket | null;
+  private isGameOver: boolean;
+  private whiteTimeRemaining: number = 600; // 10 minutes in seconds
+  private blackTimeRemaining: number = 600; // 10 minutes in seconds
+  private lastUpdateTime: number;
 
-  constructor(socket: WebSocket, clientId: string, color: 'white') {
-    this.id = uuidv4();
-    this.chess = new Chess();
-    this.whitePlayer = { socket, clientId };
-    this.blackPlayer = null;
-    this.whiteTime = 600;
-    this.blackTime = 600;
-    this.lastMoveTime = Date.now();
-    this.interval = null;
-    console.log(`[Game ${this.id}] Created for client ${clientId} as white`);
+  constructor(player1: WebSocket, player2: WebSocket) {
+    this.player1 = player1;
+    this.player2 = player2;
+    this.board = new Chess();
+    this.startTime = new Date();
+    this.moveCount = 0;
+    this.lastMove = null;
+    this.id = Math.random().toString(36).substring(7);
+    this.spectator = null;
+    this.isGameOver = false;
+    this.lastUpdateTime = Date.now();
+
+    this.initializeGame();
   }
 
-  addPlayer(socket: WebSocket, clientId: string, color: 'black') {
-    this.blackPlayer = { socket, clientId };
-    console.log(`[Game ${this.id}] Added client ${clientId} as black`);
-    this.startGame();
-  }
-
-  private startGame() {
-    console.log(`[Game ${this.id}] Starting game`);
-    this.interval = setInterval(() => this.updateTimers(), 1000);
-    this.broadcast({
-      type: INIT_GAME,
-      payload: {
-        gameId: this.id,
-        color: 'white',
-        whiteTime: Math.floor(this.whiteTime),
-        blackTime: Math.floor(this.blackTime)
-      }
-    }, this.whitePlayer!.socket);
-    this.broadcast({
-      type: INIT_GAME,
-      payload: {
-        gameId: this.id,
-        color: 'black',
-        whiteTime: Math.floor(this.whiteTime),
-        blackTime: Math.floor(this.blackTime)
-      }
-    }, this.blackPlayer!.socket);
-  }
-
-  private updateTimers() {
-    const now = Date.now();
-    const elapsed = Math.floor((now - this.lastMoveTime) / 1000);
-    this.lastMoveTime = now;
-
-    if (this.chess.turn() === 'w') {
-      this.whiteTime = Math.max(0, Math.floor(this.whiteTime - elapsed));
-    } else {
-      this.blackTime = Math.max(0, Math.floor(this.blackTime - elapsed));
-    }
-
-    console.log(`[Game ${this.id}] Timer update: whiteTime=${this.whiteTime}, blackTime=${this.blackTime}, turn=${this.chess.turn()}`);
-
-    if (this.whiteTime <= 0) {
-      this.endGame('black', 'timeout');
-    } else if (this.blackTime <= 0) {
-      this.endGame('white', 'timeout');
-    } else {
-      this.broadcastGameState();
-    }
-  }
-
-  handleMove(clientId: string, move: { from: string; to: string; promotion?: string }) {
-    console.log(`[Game ${this.id}] Handling move from client ${clientId}:`, move);
-    const player = this.whitePlayer?.clientId === clientId ? this.whitePlayer : this.blackPlayer;
-    if (!player || this.chess.turn() !== (clientId === this.whitePlayer?.clientId ? 'w' : 'b')) {
-      console.error(`[Game ${this.id}] Invalid move attempt by client ${clientId}: not their turn`);
-      player?.socket.send(JSON.stringify({ type: 'error', payload: { message: 'Not your turn' } }));
-      return;
-    }
-
+  private initializeGame() {
     try {
-      const result = this.chess.move(move);
-      if (result) {
-        console.log(`[Game ${this.id}] Move applied:`, result);
-        this.lastMoveTime = Date.now();
-        this.broadcast({
-          type: MOVE,
-          payload: { move: { from: move.from, to: move.to, promotion: move.promotion } }
-        });
-        this.broadcastGameState();
-
-        if (this.chess.isGameOver()) {
-          const reason = this.chess.isCheckmate() ? 'checkmate' : this.chess.isStalemate() ? 'stalemate' : 'draw';
-          const winner = this.chess.isCheckmate() ? (this.chess.turn() === 'w' ? 'black' : 'white') : 'none';
-          this.endGame(winner, reason);
+      this.sendToPlayer(this.player1, {
+        type: INIT_GAME,
+        payload: { 
+          color: "white",
+          gameId: this.id,
+          fen: this.board.fen()
         }
-      } else {
-        console.error(`[Game ${this.id}] Invalid move by client ${clientId}:`, move);
-        player.socket.send(JSON.stringify({ type: 'error', payload: { message: 'Invalid move' } }));
+      });
+
+      this.sendToPlayer(this.player2, {
+        type: INIT_GAME,
+        payload: { 
+          color: "black",
+          gameId: this.id,
+          fen: this.board.fen()
+        }
+      });
+
+      this.broadcastGameState();
+    } catch (error) {
+      console.error('Error initializing game:', error);
+    }
+  }
+
+  private sendToPlayer(player: WebSocket, message: any) {
+    try {
+      if (player.readyState === WebSocket.OPEN) {
+        player.send(JSON.stringify(message));
       }
     } catch (error) {
-      console.error(`[Game ${this.id}] Error applying move by client ${clientId}:`, error);
-      player.socket.send(JSON.stringify({ type: 'error', payload: { message: 'Move error' } }));
+      console.error('Error sending message to player:', error);
     }
   }
 
   private broadcastGameState() {
-    const message = {
+    if (this.isGameOver) return;
+
+    const gameState = {
       type: GAME_UPDATE,
       payload: {
-        fen: this.chess.fen(),
-        whiteTime: Math.floor(this.whiteTime),
-        blackTime: Math.floor(this.blackTime),
-        turn: this.chess.turn()
+        fen: this.board.fen(),
+        whiteTime: this.getWhiteTime(),
+        blackTime: this.getBlackTime(),
+        lastMove: this.lastMove,
+        gameId: this.id,
+        status: this.getStatus(),
+        moveCount: this.moveCount,
+        turn: this.board.turn()
       }
     };
-    console.log(`[Game ${this.id}] Broadcasting GAME_UPDATE:`, message);
-    this.broadcast(message);
+
+    this.broadcastToAll(gameState);
   }
 
-  private endGame(winner: string, reason: string) {
-    console.log(`[Game ${this.id}] Game over: winner=${winner}, reason=${reason}`);
-    this.broadcast({
-      type: GAME_OVER,
-      payload: { winner, reason }
+  private broadcastToAll(message: any) {
+    const jsonMessage = JSON.stringify(message);
+    [this.player1, this.player2, this.spectator].filter(Boolean).forEach(client => {
+      try {
+        if (client && client.readyState === WebSocket.OPEN) {
+          client.send(jsonMessage);
+        } else {
+          console.warn('Client disconnected, unable to send message');
+        }
+      } catch (error) {
+        console.error('Error broadcasting message:', error);
+      }
     });
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
+  }
+
+  addSpectator(socket: WebSocket) {
+    try {
+      if (this.spectator) {
+        // If there's already a spectator, remove them
+        this.removeSpectator(this.spectator);
+      }
+      this.spectator = socket;
+      this.sendToPlayer(socket, {
+        type: GAME_STATE,
+        payload: {
+          fen: this.board.fen(),
+          whiteTime: this.getWhiteTime(),
+          blackTime: this.getBlackTime(),
+          gameId: this.id,
+          status: this.getStatus(),
+          moveCount: this.moveCount,
+          turn: this.board.turn()
+        }
+      });
+
+      // Add spectator to broadcast list for future updates
+      this.broadcastGameState();
+    } catch (error) {
+      console.error('Error adding spectator:', error);
     }
   }
 
-  private broadcast(message: any, specificSocket?: WebSocket) {
-    if (specificSocket) {
-      specificSocket.send(JSON.stringify(message));
-    } else {
-      this.whitePlayer?.socket.send(JSON.stringify(message));
-      this.blackPlayer?.socket.send(JSON.stringify(message));
+  removeSpectator(socket: WebSocket) {
+    if (this.spectator === socket) {
+      this.spectator = null;
     }
   }
 
-  getFen() {
-    return this.chess.fen();
+  makeMove(socket: WebSocket, move: { from: string; to: string; promotion?: string }) {
+    if (this.isGameOver) return;
+
+    // Validate player turn
+    if (this.moveCount % 2 === 0 && socket !== this.player1) return;
+    if (this.moveCount % 2 === 1 && socket !== this.player2) return;
+
+    try {
+      // Update timers before making the move
+      const now = Date.now();
+      const elapsed = (now - this.lastUpdateTime) / 1000;
+      if (this.board.turn() === 'w') {
+        this.whiteTimeRemaining -= elapsed;
+      } else {
+        this.blackTimeRemaining -= elapsed;
+      }
+      this.lastUpdateTime = now;
+
+      // Validate and make the move
+      this.lastMove = this.board.move(move);
+      
+      if (!this.lastMove) {
+        throw new Error('Invalid move');
+      }
+
+      // Check for game end conditions
+      if (this.board.isGameOver()) {
+        this.isGameOver = true;
+        const gameOverMessage = {
+          type: GAME_OVER,
+          payload: {
+            winner: this.board.turn() === "w" ? "black" : "white",
+            gameId: this.id,
+            reason: this.getGameOverReason()
+          }
+        };
+        this.broadcastToAll(gameOverMessage);
+        return;
+      }
+
+      // Broadcast the move to all players and spectators
+      const moveMessage = {
+        type: MOVE,
+        payload: {
+          move: this.lastMove,
+          gameId: this.id,
+          fen: this.board.fen(),
+          moveCount: this.moveCount
+        }
+      };
+      this.broadcastToAll(moveMessage);
+
+      this.moveCount++;
+      this.broadcastGameState();
+    } catch (error) {
+      console.error('Error making move:', error);
+      this.sendToPlayer(socket, {
+        type: 'error',
+        payload: { message: 'Invalid move' }
+      });
+    }
   }
 
-  getTurn() {
-    return this.chess.turn();
+  private getGameOverReason(): string {
+    if (this.board.isCheckmate()) return "Checkmate";
+    if (this.board.isStalemate()) return "Stalemate";
+    if (this.board.isThreefoldRepetition()) return "Threefold Repetition";
+    if (this.board.isInsufficientMaterial()) return "Insufficient Material";
+    if (this.board.isDraw()) return "Draw";
+    return "Game Over";
   }
 
-  getStatus() {
-    if (this.chess.isCheckmate()) return 'Checkmate';
-    if (this.chess.isStalemate()) return 'Stalemate';
-    if (this.chess.isCheck()) return 'Check';
-    return 'In Progress';
+  getStatus(): string {
+    if (this.board.isCheckmate()) return "Checkmate";
+    if (this.board.isDraw()) return "Draw";
+    if (this.board.isCheck()) return "Check";
+    return "In Progress";
   }
 
-  getLastMove() {
-    const history = this.chess.history({ verbose: true });
-    const lastMove = history[history.length - 1];
-    return lastMove ? { from: lastMove.from, to: lastMove.to } : undefined;
+  getWhiteTime(): number {
+    if (this.board.turn() === 'w') {
+      const elapsed = (Date.now() - this.lastUpdateTime) / 1000;
+      return Math.max(0, this.whiteTimeRemaining - elapsed);
+    }
+    return this.whiteTimeRemaining;
   }
 
-  hasPlayer(clientId: string) {
-    return this.whitePlayer?.clientId === clientId || this.blackPlayer?.clientId === clientId;
+  getBlackTime(): number {
+    if (this.board.turn() === 'b') {
+      const elapsed = (Date.now() - this.lastUpdateTime) / 1000;
+      return Math.max(0, this.blackTimeRemaining - elapsed);
+    }
+    return this.blackTimeRemaining;
+  }
+
+  getLastMove(): Move | null {
+    return this.lastMove;
+  }
+
+  cleanup() {
+    this.isGameOver = true;
+    this.spectator = null;
+  }
+
+  getGameState(): GameState {
+    return {
+      id: this.id,
+      fen: this.board.fen(),
+      turn: this.board.turn(),
+      status: this.getStatus(),
+      lastMove: this.lastMove ? {
+        from: this.lastMove.from,
+        to: this.lastMove.to,
+        promotion: this.lastMove.promotion
+      } : undefined
+    };
   }
 }
